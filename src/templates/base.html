@@ -364,6 +364,23 @@
                         </svg>
                         <span class="sidebar-item-label">Forms</span>
                     </a>
+                    <a
+                        href="/my-documents"
+                        class="sidebar-item {% block nav_my_documents %}{% endblock %}"
+                        title="My Documents"
+                    >
+                        <svg
+                            class="icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                        <span class="sidebar-item-label">My Documents</span>
+                    </a>
                     {% endif %}
                     {% if current_user and ('superadmin' in current_user_roles or 'manager' in current_user_roles) %}
                     <a

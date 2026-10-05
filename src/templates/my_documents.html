@@ -1,0 +1,354 @@
+{% extends "base.html" %}
+{% block title %}My Documents — ERP Stage Builder{% endblock %}
+{% block nav_my_documents %}active{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div class="page-title" id="my-documents-title">My Documents</div>
+    <div class="page-subtitle" id="my-documents-subtitle">Create a folder to start uploading documents</div>
+  </div>
+  <div class="page-actions" style="display:flex;gap:8px">
+    <button id="create-folder-btn" class="btn btn-secondary" onclick="openCreateFolderModal()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;vertical-align:middle"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+      Create Folder
+    </button>
+    <input type="file" id="pdf-upload-input" accept="application/pdf" style="display:none" onchange="uploadMyDocument(event)" />
+    <button id="upload-pdf-btn" class="btn btn-primary" style="display:none" onclick="document.getElementById('pdf-upload-input').click()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right:4px;vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Upload PDF
+    </button>
+  </div>
+</div>
+
+<div id="my-documents-breadcrumb" style="padding:0 2px 12px;font-size:13px;color:var(--text-muted);display:none;align-items:center;gap:6px;flex-wrap:wrap"></div>
+
+<div class="card">
+  <div id="my-documents-list">
+    <div class="empty-state" style="padding:24px">
+      <div class="empty-icon">📁</div>
+      <h3>Loading…</h3>
+    </div>
+  </div>
+</div>
+
+<!-- Create Folder Modal -->
+<div class="modal-overlay" id="create-folder-modal">
+  <div class="modal" style="max-width:400px; width:100%">
+    <div class="modal-header">
+      <span class="modal-title">Create Folder</span>
+      <button class="btn btn-ghost btn-icon" onclick="closeCreateFolderModal()">✕</button>
+    </div>
+    <form id="createFolderForm" onsubmit="submitCreateFolder(event)">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label required">Folder Name</label>
+          <input type="text" class="form-control" id="newFolderName" maxlength="255" required autofocus />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeCreateFolderModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="createFolderSubmitBtn">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Remark Modal -->
+<div class="modal-overlay" id="edit-remark-modal">
+  <div class="modal" style="max-width:420px; width:100%">
+    <div class="modal-header">
+      <span class="modal-title">Remark</span>
+      <button class="btn btn-ghost btn-icon" onclick="closeEditRemarkModal()">✕</button>
+    </div>
+    <form id="editRemarkForm" onsubmit="submitEditRemark(event)">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" id="editRemarkFileName" style="font-weight:600"></label>
+          <textarea class="form-control" id="editRemarkText" rows="3" maxlength="1000" placeholder="Add a note for this document…" autofocus></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeEditRemarkModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="editRemarkSubmitBtn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Hierarchy: My Documents -> Folder -> Document. Folders cannot be nested.
+let currentFolder = null; // { folder_id, name }
+
+function updateHeaderUI() {
+  const title = document.getElementById('my-documents-title');
+  const subtitle = document.getElementById('my-documents-subtitle');
+  const breadcrumb = document.getElementById('my-documents-breadcrumb');
+  const createFolderBtn = document.getElementById('create-folder-btn');
+  const uploadBtn = document.getElementById('upload-pdf-btn');
+
+  if (!currentFolder) {
+    title.textContent = 'My Documents';
+    subtitle.textContent = 'Create a folder to start uploading documents';
+    breadcrumb.style.display = 'none';
+    createFolderBtn.style.display = '';
+    uploadBtn.style.display = 'none'; // documents can only live inside a folder
+    return;
+  }
+
+  title.textContent = currentFolder.name;
+  subtitle.textContent = 'Upload and manage PDF documents in this folder';
+  createFolderBtn.style.display = 'none'; // folders cannot be nested
+  uploadBtn.style.display = '';
+
+  breadcrumb.style.display = 'flex';
+  let html = `<a href="#" onclick="goToRoot(); return false;" style="color:var(--text-muted);text-decoration:none">My Documents</a>`;
+  html += `<span style="color:var(--border)">/</span>`;
+  html += `<span style="color:var(--text);font-weight:600">${escapeHtml(currentFolder.name)}</span>`;
+  breadcrumb.innerHTML = html;
+}
+
+function goToRoot() {
+  currentFolder = null;
+  updateHeaderUI();
+  loadFolders();
+}
+
+function openFolder(folderId, name) {
+  currentFolder = { folder_id: folderId, name };
+  updateHeaderUI();
+  loadFolderDocuments();
+}
+
+// ---------------------------------------------------------------------------
+// Root view: Folders
+// ---------------------------------------------------------------------------
+
+async function loadFolders() {
+  const container = document.getElementById('my-documents-list');
+  container.innerHTML = `<div class="empty-state" style="padding:24px"><div class="empty-icon">📁</div><h3>Loading…</h3></div>`;
+  try {
+    const folders = await apiFetch(`${API}/documents/folders`);
+    if (!folders || folders.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding:40px">
+          <div class="empty-icon">📁</div>
+          <h3>No folders yet</h3>
+          <p>Create a folder to start uploading PDFs.</p>
+          <button class="btn btn-primary btn-sm" onclick="openCreateFolderModal()">Create Folder</button>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;padding:12px">
+        ${folders.map(f => `
+          <div style="padding:14px;border-radius:var(--radius);border:1px solid var(--border-light);background:#fff;cursor:pointer" onclick="openFolder('${f.folder_id}', '${escapeHtml(f.name).replace(/'/g, "\\'")}')">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:32px;height:32px;background:var(--primary-light);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">📁</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(f.name)}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Folder</div>
+              </div>
+              <button class="btn btn-xs btn-danger" onclick="event.stopPropagation(); deleteMyFolder('${f.folder_id}', '${escapeHtml(f.name).replace(/'/g, "\\'")}')">Delete</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>`;
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state" style="padding:24px"><h3>Failed to load folders</h3><p>${e.message}</p></div>`;
+  }
+}
+
+function openCreateFolderModal() {
+  if (currentFolder) return; // folders only at the root — no nesting
+  document.getElementById('newFolderName').value = '';
+  document.getElementById('create-folder-modal').classList.add('open');
+  setTimeout(() => document.getElementById('newFolderName').focus(), 0);
+}
+
+function closeCreateFolderModal() {
+  document.getElementById('create-folder-modal').classList.remove('open');
+}
+
+async function submitCreateFolder(event) {
+  event.preventDefault();
+  const name = document.getElementById('newFolderName').value.trim();
+  if (!name) return;
+
+  const btn = document.getElementById('createFolderSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    await apiFetch(`${API}/documents/folders`, {
+      method: 'POST',
+      body: { name },
+    });
+    toast('Folder created', 'success');
+    closeCreateFolderModal();
+    loadFolders();
+  } catch (e) {
+    toast(e.message || 'Failed to create folder', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create';
+  }
+}
+
+async function deleteMyFolder(folderId, name) {
+  if (!confirm(`Delete folder "${name}" and everything inside it? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`${API}/documents/folders/${folderId}`, { method: 'DELETE' });
+    toast('Folder deleted', 'success');
+    loadFolders();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Folder level: Documents only. Folders cannot be nested, so no "Create
+// Folder" option appears once inside one.
+// ---------------------------------------------------------------------------
+
+async function loadFolderDocuments() {
+  const container = document.getElementById('my-documents-list');
+  container.innerHTML = `<div class="empty-state" style="padding:24px"><div class="empty-icon">📄</div><h3>Loading…</h3></div>`;
+
+  const folderId = currentFolder.folder_id;
+
+  try {
+    const docs = await apiFetch(`${API}/documents?folder_id=${encodeURIComponent(folderId)}`);
+
+    if (!docs || docs.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding:40px">
+          <div class="empty-icon">📄</div>
+          <h3>No documents yet</h3>
+          <p>Upload your first PDF to get started.</p>
+          <button class="btn btn-primary btn-sm" onclick="document.getElementById('pdf-upload-input').click()">Upload PDF</button>
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px;padding:12px">
+        ${docs.map(d => `
+          <div class="d-flex align-center gap-2" style="padding:10px 12px;border-radius:var(--radius);border:1px solid var(--border-light);background:#fff">
+            <div style="width:32px;height:32px;background:var(--primary-light);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">📄</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(d.file_name)}</div>
+              <div style="font-size:11px;color:var(--text-muted)">${formatFileSize(d.file_size)} · ${new Date(d.created_at).toLocaleString()}</div>
+              ${d.remark ? `<div style="font-size:12px;color:var(--text);margin-top:4px;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">📝 ${escapeHtml(d.remark)}</div>` : ''}
+            </div>
+            <button class="btn btn-xs btn-secondary" onclick="openEditRemarkModal('${d.document_id}', '${escapeHtml(d.file_name).replace(/'/g, "\\'")}', ${d.remark ? `'${escapeHtml(d.remark).replace(/'/g, "\\'")}'` : 'null'})">${d.remark ? 'Edit Remark' : 'Add Remark'}</button>
+            <button class="btn btn-xs btn-secondary" onclick="viewMyDocument('${d.document_id}')">View</button>
+            <button class="btn btn-xs btn-danger" onclick="deleteMyDocument('${d.document_id}', '${escapeHtml(d.file_name).replace(/'/g, "\\'")}')">Delete</button>
+          </div>
+        `).join('')}
+      </div>`;
+  } catch (e) {
+    container.innerHTML = `<div class="empty-state" style="padding:24px"><h3>Failed to load documents</h3><p>${e.message}</p></div>`;
+  }
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function uploadMyDocument(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file || !currentFolder) return; // documents only live inside a folder
+
+  if (file.type !== 'application/pdf') {
+    toast('Only PDF files are allowed', 'error');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('folder_id', currentFolder.folder_id);
+
+  try {
+    const response = await fetch(`${API}/documents`, { method: 'POST', body: formData });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    toast('Document uploaded', 'success');
+    loadFolderDocuments();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function viewMyDocument(documentId) {
+  try {
+    const { url } = await apiFetch(`${API}/documents/${documentId}/url`);
+    window.open(url, '_blank');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function deleteMyDocument(documentId, fileName) {
+  if (!confirm(`Delete "${fileName}"? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`${API}/documents/${documentId}`, { method: 'DELETE' });
+    toast('Document deleted', 'success');
+    loadFolderDocuments();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+let editRemarkDocId = null;
+
+function openEditRemarkModal(documentId, fileName, currentRemark) {
+  editRemarkDocId = documentId;
+  document.getElementById('editRemarkFileName').textContent = fileName;
+  document.getElementById('editRemarkText').value = currentRemark || '';
+  document.getElementById('edit-remark-modal').classList.add('open');
+  setTimeout(() => document.getElementById('editRemarkText').focus(), 0);
+}
+
+function closeEditRemarkModal() {
+  document.getElementById('edit-remark-modal').classList.remove('open');
+  editRemarkDocId = null;
+}
+
+async function submitEditRemark(event) {
+  event.preventDefault();
+  if (!editRemarkDocId) return;
+  const remark = document.getElementById('editRemarkText').value.trim();
+
+  const btn = document.getElementById('editRemarkSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    await apiFetch(`${API}/documents/${editRemarkDocId}/remark`, {
+      method: 'PATCH',
+      body: { remark: remark || null },
+    });
+    toast('Remark saved', 'success');
+    closeEditRemarkModal();
+    loadFolderDocuments();
+  } catch (e) {
+    toast(e.message || 'Failed to save remark', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save';
+  }
+}
+
+updateHeaderUI();
+loadFolders();
+</script>
+{% endblock %}
