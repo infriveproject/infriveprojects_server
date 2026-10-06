@@ -95,6 +95,29 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
+# My Document (superadmin only)
+# ---------------------------------------------------------------------------
+
+@router.get("/my-documents", response_class=HTMLResponse)
+async def my_documents_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user, roles = await _require_auth(request, db)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    is_superadmin = "superadmin" in (roles or [])
+    if not is_superadmin:
+        return HTMLResponse("Access denied — superadmin only", status_code=403)
+
+    return templates.TemplateResponse(
+        "my_documents.html",
+        {
+            "request": request,
+            "current_user": user,
+            "current_user_roles": roles,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stage detail
 # ---------------------------------------------------------------------------
 

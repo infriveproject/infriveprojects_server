@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from src.app.api import ui as ui_router
-from src.app.api.v1 import form_records, form_types, metadata, permissions, stages, storage, parse, departments, locations, workflow_assignments, groups
+from src.app.api.v1 import form_records, form_types, metadata, permissions, stages, storage, parse, departments, locations, workflow_assignments, groups, my_documents
 from src.app.api.v1 import auth as auth_router
 from src.app.api.v1 import users as users_router
 import src.app.models  # noqa: F401 — ensures all models are registered with Base
@@ -136,6 +136,7 @@ app.include_router(departments.router, prefix="/api/v1")
 app.include_router(locations.router, prefix="/api/v1")
 app.include_router(workflow_assignments.router, prefix="/api/v1")
 app.include_router(groups.router, prefix="/api/v1")
+app.include_router(my_documents.router, prefix="/api/v1")
 
 
 

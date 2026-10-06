@@ -19,6 +19,7 @@ from src.app.models.stage_form_type import StageFormType
 from src.app.models.form_action import FormAction
 from src.app.models.workflow_assignment import WorkflowAssignment
 from src.app.models.group import Group
+from src.app.models.my_document import MyDocument, MyDocumentFolder
 
 __all__ = [
     "User",
@@ -40,6 +41,6 @@ __all__ = [
     "ProjectMember",
     "UserProjectRole",
     "Group",
+    "MyDocument",
+    "MyDocumentFolder",
 ]
-
-

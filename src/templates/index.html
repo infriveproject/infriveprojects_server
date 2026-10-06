@@ -126,6 +126,29 @@
 
 </div>
 
+{% if current_user and 'superadmin' in current_user_roles %}
+<!-- Quick Access -->
+<div class="card" style="margin-top:20px">
+  <div class="card-header">
+    <div>
+      <div class="card-title">Quick Access</div>
+      <div class="card-subtitle">Superadmin tools</div>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <a href="/my-documents" style="text-decoration:none">
+      <div class="d-flex align-center gap-2" style="padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border-light);background:#fff;transition:var(--transition)" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border-light)'">
+        <div style="width:32px;height:32px;background:var(--primary-light);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">📄</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600">My Document</div>
+          <div style="font-size:11px;color:var(--text-muted)">Upload and manage your PDF documents</div>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+{% endif %}
+
 <!-- All Stages Table -->
 <div class="card" style="margin-top:20px">
   <div class="card-header">
