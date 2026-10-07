@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.models.form_record import FormRecord
 from src.app.models.form_type import FormType
 from src.app.models.form_action import FormAction
+from src.app.models.form_record_rating import FormRecordRating
 from src.app.models.stage import Stage
 from src.app.services.stage_service import StageService
 from src.app.schemas.form_record import (
@@ -18,6 +19,7 @@ from src.app.schemas.form_record import (
     FormRecordUpdate,
 )
 from src.app.storage.minio_storage import storage_service
+from src.app.services.rating_comment_preset_service import RatingCommentPresetService
 from src.app.services.workflow_assignment_service import WorkflowAssignmentService
 from transitions import Machine
 
@@ -27,6 +29,13 @@ class RecordContext:
 
 
 logger = logging.getLogger(__name__)
+
+
+# Triggers that are a judgement of quality and therefore demand a score and
+# a justification. A cancel/reject is a rejection, not a grade — forcing a
+# rating there would make cancelling a record impossible. The UI mirrors this
+# set; this copy is the one that is enforced.
+RATEABLE_TRIGGERS = frozenset({"submit", "verify"})
 
 
 class FormRecordService:
@@ -755,7 +764,15 @@ class FormRecordService:
                     
         return valid_triggers
 
-    async def process_transition(self, record_id: str, trigger: str, user_data: dict, remarks: str | None = None) -> FormRecordResponse:
+    async def process_transition(
+        self,
+        record_id: str,
+        trigger: str,
+        user_data: dict,
+        remarks: str | None = None,
+        rating: int | None = None,
+        comment: str | None = None,
+    ) -> FormRecordResponse:
         record = await self.db.get(FormRecord, record_id)
         if not record:
             raise ValueError(f"Record {record_id} not found")
@@ -767,6 +784,26 @@ class FormRecordService:
         # Security check: Does user have RBAC and workflow assignment rights for this trigger?
         if not await self._can_execute_trigger(record, trigger, user_data, ft.workflow_data):
              raise ValueError("You do not have permission to execute this transition")
+
+        # A rating is mandatory on a quality judgement. Checked here, before any
+        # state is touched, so a rejected transition cannot leave the record
+        # half-moved.
+        if trigger in RATEABLE_TRIGGERS and rating is None:
+            raise ValueError(f"A rating is required to {trigger} this record")
+
+        # The comment is NOT taken from the caller. The reviewer picks a star
+        # value and the agreed wording for that value is looked up here, so the
+        # text on a record is always one of the five approved ones — a crafted
+        # API call cannot smuggle its own wording in. Anything the client sent
+        # in `comment` is deliberately discarded.
+        comment = None
+        if rating is not None:
+            comment = await RatingCommentPresetService(self.db).get_text(rating)
+            if not comment:
+                raise ValueError(
+                    f"No comment text is configured for a rating of {rating}. "
+                    f"Please configure the rating comment presets."
+                )
         
         old_state = record.status
              
@@ -822,9 +859,25 @@ class FormRecordService:
             to_state=new_state,
             performed_by=user_data.get("user_id"),
             remarks=remarks,
+            rating=rating,
+            comment=comment,
         )
 
         self.db.add(action)
+
+        # The action row above is the history ("rated 2 at submit"); this is
+        # the record's current score, which lists and averages read. Both are
+        # written in the one commit below so they can never drift apart.
+        if rating is not None:
+            existing_rating = await self.db.get(FormRecordRating, record.record_id)
+            if existing_rating is None:
+                existing_rating = FormRecordRating(record_id=record.record_id)
+                self.db.add(existing_rating)
+            existing_rating.rating = rating
+            existing_rating.comment = comment
+            existing_rating.remark = remarks
+            existing_rating.rated_by = user_data.get("user_id")
+            existing_rating.rated_at = datetime.now(timezone.utc)
              
         await self.db.commit()
         await self.db.refresh(record)

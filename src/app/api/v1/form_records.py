@@ -14,12 +14,18 @@ from src.app.schemas.form_record import (
 )
 from src.app.services.form_record_service import FormRecordService
 from src.app.services.user_service import UserService
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 
 class TransitionPayload(BaseModel):
     trigger: str
     remarks: Optional[str] = None
+    # 1-5 score and its justification, captured in the same popup as the
+    # remark. Optional here because cancel/reject carry neither; whether
+    # they are actually required depends on the trigger and is enforced
+    # in process_transition against RATEABLE_TRIGGERS.
+    rating: Optional[int] = Field(None, ge=1, le=5)
+    comment: Optional[str] = None
 
 router = APIRouter(prefix="/form-records", tags=["Form Records"])
 
@@ -158,7 +164,9 @@ async def transition_record(
             record_id=record_id,
             trigger=payload.trigger,
             user_data=user_data,
-            remarks=payload.remarks
+            remarks=payload.remarks,
+            rating=payload.rating,
+            comment=payload.comment,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

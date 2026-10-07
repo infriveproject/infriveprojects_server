@@ -328,6 +328,8 @@ async def new_form_view(
     perm_service = PermissionService(db)
     user_permissions = await perm_service.get_user_permissions(user.user_id)
     project_stage_id = StageService.resolve_project_stage_id(stage) if stage else None
+    from src.app.services.rating_comment_preset_service import RatingCommentPresetService
+    rating_presets = await RatingCommentPresetService(db).get_all()
     return templates.TemplateResponse(
         "form_view.html",
         {
@@ -336,6 +338,7 @@ async def new_form_view(
             "stage": stage,
             "record": None,
             "project_stage_id": project_stage_id,
+            "rating_presets": rating_presets,
             "current_user": user,
             "current_user_roles": roles,
             "user_permissions": user_permissions,
@@ -366,6 +369,8 @@ async def edit_form_view(
     from src.app.services.permission_service import PermissionService
     perm_service = PermissionService(db)
     user_permissions = await perm_service.get_user_permissions(user.user_id)
+    from src.app.services.rating_comment_preset_service import RatingCommentPresetService
+    rating_presets = await RatingCommentPresetService(db).get_all()
     return templates.TemplateResponse(
         "form_view.html",
         {
@@ -377,6 +382,9 @@ async def edit_form_view(
             "current_user": user,
             "current_user_roles": roles,
             "user_permissions": user_permissions,
+            # {rating: text} so the dialog can show the wording the server
+            # will store, without a second round trip.
+            "rating_presets": rating_presets,
         },
     )
 
@@ -399,6 +407,10 @@ async def list_form_view(
     from src.app.services.permission_service import PermissionService
     perm_service = PermissionService(db)
     user_permissions = await perm_service.get_user_permissions(user.user_id)
+    # One query for the whole page's ratings, keyed by record_id — the
+    # template looks each row up instead of querying per row.
+    from src.app.services.form_record_rating_service import FormRecordRatingService
+    ratings = await FormRecordRatingService(db).get_many([r.record_id for r in items])
     return templates.TemplateResponse(
         "form_list.html",
         {
@@ -406,6 +418,7 @@ async def list_form_view(
             "form_type": form_type,
             "stage": stage,
             "records": items,
+            "ratings": ratings,
             "total": total,
             "current_user": user,
             "current_user_roles": roles,
