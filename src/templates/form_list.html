@@ -38,6 +38,7 @@
           <th>DocName</th>
           <th>Status</th>
           <th>Created</th>
+          <th>Rating</th>
           {% if is_submittable %}<th>Submitted By</th>{% endif %}
           <th>Actions</th>
         </tr>
@@ -57,6 +58,18 @@
             {% else %}<span class="badge badge-orange">{{ rec.status }}</span>{% endif %}
           </td>
           <td style="color:var(--text-muted);font-size:12px">{{ rec.created_at.strftime('%d %b %Y') if rec.created_at else '' }}</td>
+          <td style="white-space:nowrap">
+            {% set r = ratings.get(rec.record_id) if ratings else None %}
+            {% if r %}
+            {# Remark rides along as the tooltip, so the score is never a bare number without its reason. #}
+            <span title="{{ r.comment }}{% if r.remark %} — {{ r.remark }}{% endif %}" style="cursor:help">
+              <span style="color:#f59e0b;letter-spacing:1px">{{ '★' * r.rating }}</span><span style="color:#d1d5db;letter-spacing:1px">{{ '★' * (5 - r.rating) }}</span>
+              <span style="color:var(--text-muted);font-size:11px;margin-left:4px">{{ r.rating }}/5</span>
+            </span>
+            {% else %}
+            <span style="color:var(--text-light);font-size:12px">—</span>
+            {% endif %}
+          </td>
           {% if is_submittable %}<td style="font-size:12px">{{ rec.submitted_by or '—' }}</td>{% endif %}
           <td>
             <div class="d-flex gap-1">

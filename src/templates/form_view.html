@@ -832,6 +832,20 @@
             </div>
             <div class="modal-body" style="padding:20px;">
                 <p id="transition-modal-msg" style="margin-top:0; margin-bottom:12px; font-size:14px; color:var(--text-muted);">Are you sure you want to perform this action?</p>
+                <div class="form-group" id="transition-rating-group" style="display:none; margin-bottom:14px;">
+                    <label class="form-label">Rating <span style="color:#dc2626">*</span></label>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <div id="transition-rating-stars" style="display:flex; gap:4px; align-items:center;"></div>
+                        <span id="transition-rating-label" style="font-size:12px; color:var(--text-muted);">Not rated</span>
+                    </div>
+                </div>
+                <div class="form-group" id="transition-comment-group" style="display:none; margin-bottom:14px;">
+                    <label for="transition-comment" class="form-label">Comment <span style="font-weight:400; color:var(--text-muted); font-size:11px;">(set by the rating)</span></label>
+                    <textarea class="form-control" id="transition-comment" rows="2" readonly
+                              style="background:var(--bg); color:var(--text-muted); cursor:not-allowed;"
+                              placeholder="Choose a rating above and its comment appears here."></textarea>
+                    <div id="transition-validation-msg" style="display:none; margin-top:6px; font-size:12px; color:#dc2626;"></div>
+                </div>
                 <div class="form-group" style="margin-bottom:0;">
                     <label for="transition-remarks" class="form-label">Remarks (Optional)</label>
                     <textarea class="form-control" id="transition-remarks" rows="3" placeholder="Add a note..."></textarea>
@@ -2743,6 +2757,69 @@
     }
 
     let currentTransitionTrigger = null;
+    let transitionRating = null;
+
+    // {rating: text}, rendered from the rating_comment_presets table. The
+    // server looks the text up again when storing, so this copy is only ever
+    // for showing the reviewer what will be saved.
+    const RATING_COMMENTS = {{ (rating_presets or {}) | tojson }};
+
+    // Triggers that are a judgement of quality, and so ask for a score.
+    // A cancel/reject is a rejection — the remark is the point there, not a star.
+    const RATEABLE_TRIGGERS = new Set(['submit', 'verify']);
+
+    function renderTransitionStars() {
+      const wrap = document.getElementById('transition-rating-stars');
+      const label = document.getElementById('transition-rating-label');
+      if (!wrap) return;
+      wrap.innerHTML = [1,2,3,4,5].map(n => `
+        <svg width="20" height="20" viewBox="0 0 24 24"
+             fill="${n <= (transitionRating || 0) ? '#f59e0b' : 'none'}"
+             stroke="${n <= (transitionRating || 0) ? '#f59e0b' : '#d1d5db'}"
+             stroke-width="2" style="cursor:pointer;" onclick="setTransitionRating(${n})">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>`).join('');
+      if (label) label.textContent = transitionRating ? `${transitionRating} / 5` : 'Not rated';
+    }
+
+    function setTransitionRating(n) {
+      // Clicking the current score again clears it, so a rating given by
+      // mistake can be undone without reopening the dialog.
+      transitionRating = (transitionRating === n) ? null : n;
+      renderTransitionStars();
+      // The comment is not typed — it is whatever this score means.
+      document.getElementById('transition-comment').value =
+          transitionRating ? (RATING_COMMENTS[transitionRating] || '') : '';
+      validateTransitionForm();
+    }
+
+    // Returns the reason the dialog cannot be confirmed yet, or null when it can.
+    function transitionBlockReason() {
+      if (!RATEABLE_TRIGGERS.has(currentTransitionTrigger)) return null;
+      if (!transitionRating) return 'Please give a rating.';
+      // No check on the comment: it is filled from the rating, and the server
+      // resolves it again regardless of what the browser sends.
+      return null;
+    }
+
+    // Keeps the confirm button in step with the fields. The same rule is
+    // enforced again server-side, so this is a courtesy, not the guard.
+    function validateTransitionForm() {
+      const reason = transitionBlockReason();
+      const btn = document.getElementById('transition-confirm-btn');
+      const msg = document.getElementById('transition-validation-msg');
+      btn.disabled = !!reason;
+      btn.style.opacity = reason ? '0.5' : '';
+      btn.style.cursor = reason ? 'not-allowed' : '';
+      // Only nag once they have started filling the form in.
+      const touched = !!transitionRating;
+      if (reason && touched) {
+        msg.textContent = reason;
+        msg.style.display = 'block';
+      } else {
+        msg.style.display = 'none';
+      }
+    }
 
     function openTransitionModal(trigger) {
         if(!RECORD_ID) return;
@@ -2754,6 +2831,14 @@
         document.getElementById('transition-modal-title').textContent = triggerLabel + ' Record';
         document.getElementById('transition-modal-msg').textContent = `You are about to execute '${trigger}' on this record.`;
         document.getElementById('transition-remarks').value = '';
+
+        transitionRating = null;
+        document.getElementById('transition-comment').value = '';
+        const needsRating = RATEABLE_TRIGGERS.has(trigger);
+        document.getElementById('transition-rating-group').style.display = needsRating ? 'block' : 'none';
+        document.getElementById('transition-comment-group').style.display = needsRating ? 'block' : 'none';
+        renderTransitionStars();
+        validateTransitionForm();
         
         const confirmBtn = document.getElementById('transition-confirm-btn');
         confirmBtn.textContent = triggerLabel;
@@ -2802,6 +2887,9 @@
       if(!RECORD_ID) return;
       if(dirty) { toast('Save the record first before transitioning','error'); return; }
       
+      const blocked = transitionBlockReason();
+      if (blocked) { toast(blocked, 'error'); validateTransitionForm(); return; }
+
       const remarks = document.getElementById('transition-remarks').value.trim();
       const confirmBtn = document.getElementById('transition-confirm-btn');
       const originalText = confirmBtn.textContent;
@@ -2811,7 +2899,7 @@
       try {
         await apiFetch(`${API}/form-records/${RECORD_ID}/transition`, {
             method:'POST',
-            body: { trigger, remarks: remarks || null }
+            body: { trigger, remarks: remarks || null, rating: transitionRating }
         });
         toast(`Transition '${trigger}' successful`, 'success');
         closeTransitionModal();
